@@ -4,8 +4,9 @@ from python_picnic_api import PicnicAPI
 import configparser
 import argparse
 import datetime
+from pathlib import Path
 
-CFG='/etc/picnic.ini'
+CFG=[ str(Path.home()) + '/.picnic.ini', '/etc/picnic.ini' ]
 
 def todate(date):
     return(datetime.datetime.strptime(date, "%Y-%m-%dT%H:%M:%S.%f%z"))
@@ -33,11 +34,14 @@ def printsearchitem(item):
 
 def main():
     config = configparser.ConfigParser()
-    try:
-        with open(CFG) as f:
-            config.read(CFG)
-    except IOError:
-        raise ValueError(f'Failed to read  {CFG}')
+    for cfg in CFG:
+        try:
+            with open(cfg) as f:
+                config.read(cfg)
+        except:
+            pass
+    if not config.has_section("account"):
+        raise ValueError('Unable to find usable picnic.ini file.')
 
     try:
         picnic = PicnicAPI(username=config['account']['username'], password=config['account']['password'], country_code=config['account']['country'])
