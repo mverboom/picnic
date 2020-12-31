@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+
+from python_picnic_api import PicnicAPI
+import configparser
+import argparse
+import datetime
+
+CFG='/etc/picnic.ini'
+
+def todate(date):
+    return(datetime.datetime.strptime(date, "%Y-%m-%dT%H:%M:%S.%f%z"))
+
+def printitem(item):
+    for dec in item["items"][0]["decorators"]:
+       if dec["type"] == "QUANTITY":
+           quantity = dec["quantity"]
+    price = item["items"][0]["price"]
+    print(f'{quantity} {item["items"][0]["name"]} ({item["items"][0]["unit_quantity"]}) ({item["items"][0]["id"]}) {(price * quantity)/100:.2f}')
+
+def printsearchitem(item):
+    if item["type"] != "SINGLE_ARTICLE":
+        return
+    period=""
+    price=f'{item["display_price"]/100:.2f}'
+    for dec in item["decorators"]:
+       if dec["type"] == "UNIT_QUANTITY":
+           quantity = dec["unit_quantity_text"]
+       if dec["type"] == "FRESH_LABEL":
+           period = f' {dec["period"]}'
+       if dec["type"] == "PRICE":
+           price = f'{dec["display_price"]/100:.2f} (discount)'
+    print(f'{item["id"]} {item["name"]} ({quantity}{period}) {price}')
+
+def main():
+    config = configparser.ConfigParser()
+    try:
+        with open(CFG) as f:
+            config.read(CFG)
+    except IOError:
+        raise ValueError(f'Failed to read  {CFG}')
+
+    try:
+        picnic = PicnicAPI(username=config['account']['username'], password=config['account']['password'], country_code=config['account']['country'])
+    except:
+        raise ValueError('Unable to log in.')
+
+    parser = argparse.ArgumentParser(description="picnic cli interface")
+    subparsers = parser.add_subparsers(dest='action')
+    subparsers.required = True
+    parser_add = subparsers.add_parser('add', help="Add product to cart")
+    parser_add.add_argument('product', type=str, help='product id')
+    parser_add.add_argument('amount', type=int, help='amount of product')
+    parser_rm = subparsers.add_parser('remove', help="Remove product from cart")
+    parser_rm.add_argument('product', type=str, help='product id')
+    parser_search = subparsers.add_parser('search', help="Search for a product")
+    parser_search.add_argument('name', type=str, help='product name')
+    parser_cart = subparsers.add_parser('cart', help="Show cart contents")
+    parser_clear = subparsers.add_parser('clear', help="Clear cart contents")
+    parser_deliveries = subparsers.add_parser('deliveries', help="Show deliveries")
+    parser_slots = subparsers.add_parser('slots', help="Show deliver slots")
+
+    args = parser.parse_args()
+
+    if args.action == 'add':
+        picnic.add_product(args.product, count=args.amount)
+    if args.action == 'remove':
+        picnic.remove_product(args.product)
+    elif args.action == 'search':
+        results = picnic.search(args.name)
+        for result in results[0]['items']:
+            printsearchitem(result)
+    elif args.action == 'clear':
+        picnic.clear_cart()
+    elif args.action == 'cart':
+        cart = picnic.get_cart()
+        for item in cart['items']:
+            printitem(item)
+    elif args.action == 'deliveries':
+        deliveries = picnic.get_current_deliveries()
+        for delivery in deliveries:
+            print(f'Placed: {todate(delivery["creation_time"]).strftime("%Y/%m/%d %H:%M:%S")}')
+            print(f'Delivery: {todate(delivery["slot"]["window_start"]).strftime("%Y/%m/%d %H:%M")}-{todate(delivery["slot"]["window_end"]).strftime("%H:%M")}')
+            for order in delivery["orders"]:
+               print(f'Added on: {todate(order["creation_time"]).strftime("%Y/%m/%d %H:%M:%S")}')
+               for item in order["items"]:
+                   printitem(item)
+    elif args.action == 'slots':
+        slots = picnic.get_delivery_slots()
+        for slot in slots['delivery_slots']:
+            print(f'Slot: {todate(slot["window_start"]).strftime("%Y/%m/%d %H:%M")}-{todate(slot["window_end"]).strftime("%H:%M")} (order before: {todate(slot["cut_off_time"]).strftime("%Y/%m/%d %H:%M")})')
+            if slot["is_available"] == True:
+                print('Status: Available')
+            else:
+                print('Status: Full')
+            if slot["selected"] == True:
+                print('Selected: Yes')
+            if slot["reserved"] == True:
+                print('Reserved: Yes')
+
+main()
